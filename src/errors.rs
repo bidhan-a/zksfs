@@ -6,4 +6,6 @@ pub enum ZKError {
     InvalidFieldElement(String),
     #[error("Circuit error: {0}")]
     CircuitError(String),
+    #[error("Polynomial error: {0}")]
+    PolynomialError(String),
 }
