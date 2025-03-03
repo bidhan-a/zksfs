@@ -47,7 +47,7 @@ impl Polynomial {
 
         let mut result = FieldElement::new(0, fe.modulus)?;
 
-        // Evaluate from highest degree coefficient downwards.
+        // Evaluate from highest degree coefficient downwards (Horner's method).
         for coeff in self.coefficients.iter().rev() {
             result = result.mul(fe)?;
             result = result.add(coeff)?;
@@ -58,17 +58,82 @@ impl Polynomial {
 
     /// Adds two polynomials.
     pub fn add(&self, other: &Polynomial) -> Result<Polynomial, ZKError> {
-        todo!()
+        if self.coefficients[0].modulus != other.coefficients[0].modulus {
+            return Err(ZKError::PolynomialError(
+                "Moduli must be the same for addition".to_string(),
+            ));
+        }
+
+        let max_len = self.coefficients.len().max(other.coefficients.len());
+        let modulus = self.coefficients[0].modulus;
+        let mut sum = Vec::new();
+
+        for i in 0..max_len {
+            let a = self
+                .coefficients
+                .get(i)
+                .cloned()
+                .unwrap_or(FieldElement::new(0, modulus)?);
+            let b = other
+                .coefficients
+                .get(i)
+                .cloned()
+                .unwrap_or(FieldElement::new(0, modulus)?);
+            sum.push(a.add(&b)?);
+        }
+
+        Polynomial::new(sum)
     }
 
     /// Subtracts two polynomials.
     pub fn sub(&self, other: &Polynomial) -> Result<Polynomial, ZKError> {
-        todo!()
+        if self.coefficients[0].modulus != other.coefficients[0].modulus {
+            return Err(ZKError::PolynomialError(
+                "Moduli must be the same for subtraction".to_string(),
+            ));
+        }
+
+        let max_len = self.coefficients.len().max(other.coefficients.len());
+        let modulus = self.coefficients[0].modulus;
+        let mut diff = Vec::new();
+
+        for i in 0..max_len {
+            let a = self
+                .coefficients
+                .get(i)
+                .cloned()
+                .unwrap_or(FieldElement::new(0, modulus)?);
+            let b = other
+                .coefficients
+                .get(i)
+                .cloned()
+                .unwrap_or(FieldElement::new(0, modulus)?);
+            diff.push(a.sub(&b)?);
+        }
+
+        Polynomial::new(diff)
     }
 
     /// Multiplies two polynomials.
     pub fn mul(&self, other: &Polynomial) -> Result<Polynomial, ZKError> {
-        todo!()
+        if self.coefficients[0].modulus != other.coefficients[0].modulus {
+            return Err(ZKError::PolynomialError(
+                "Moduli must be the same for multiplication".to_string(),
+            ));
+        }
+
+        let n = self.coefficients.len();
+        let m = other.coefficients.len();
+        let modulus = self.coefficients[0].modulus;
+        let mut product = vec![FieldElement::new(0, modulus)?; n + m - 1];
+
+        for i in 0..n {
+            for j in 0..m {
+                let prod = self.coefficients[i].mul(&other.coefficients[j])?;
+                product[i + j] = product[i + j].add(&prod)?;
+            }
+        }
+        Polynomial::new(product)
     }
 }
 
@@ -93,5 +158,101 @@ mod tests {
         let x = FieldElement::new(3, modulus).unwrap();
         let result = polynomial.evaluate(&x).unwrap();
         assert_eq!(result, FieldElement::new(68, modulus).unwrap());
+    }
+
+    #[test]
+    fn test_add() {
+        let modulus = 97;
+        // Define polynomial: 1 + 2x mod 97.
+        let coefficients1 = vec![
+            FieldElement::new(1, modulus).unwrap(),
+            FieldElement::new(2, modulus).unwrap(),
+        ];
+        let polynomial1 = Polynomial::new(coefficients1).unwrap();
+
+        // Define polynomial: 2 + 3x + 4x^2 mod 97.
+        let coefficients2 = vec![
+            FieldElement::new(2, modulus).unwrap(),
+            FieldElement::new(3, modulus).unwrap(),
+            FieldElement::new(4, modulus).unwrap(),
+        ];
+        let polynomial2 = Polynomial::new(coefficients2).unwrap();
+
+        let sum = polynomial1.add(&polynomial2).unwrap();
+        assert_eq!(sum.coefficients[0], FieldElement::new(3, modulus).unwrap());
+        assert_eq!(sum.coefficients[1], FieldElement::new(5, modulus).unwrap());
+        assert_eq!(sum.coefficients[2], FieldElement::new(4, modulus).unwrap());
+    }
+
+    #[test]
+    fn test_sub() {
+        let modulus = 97;
+        // Define polynomial: 1 + 2x mod 97.
+        let coefficients1 = vec![
+            FieldElement::new(1, modulus).unwrap(),
+            FieldElement::new(2, modulus).unwrap(),
+        ];
+        let polynomial1 = Polynomial::new(coefficients1).unwrap();
+
+        // Define polynomial: 2 + 3x + 4x^2 mod 97.
+        let coefficients2 = vec![
+            FieldElement::new(2, modulus).unwrap(),
+            FieldElement::new(3, modulus).unwrap(),
+            FieldElement::new(4, modulus).unwrap(),
+        ];
+        let polynomial2 = Polynomial::new(coefficients2).unwrap();
+
+        let diff = polynomial1.sub(&polynomial2).unwrap();
+        assert_eq!(
+            diff.coefficients[0],
+            FieldElement::new(96, modulus).unwrap()
+        );
+        assert_eq!(
+            diff.coefficients[1],
+            FieldElement::new(96, modulus).unwrap()
+        );
+        assert_eq!(
+            diff.coefficients[2],
+            FieldElement::new(93, modulus).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_mul() {
+        let modulus = 97;
+        // Define polynomial: 1 + 2x mod 97.
+        let coefficients1 = vec![
+            FieldElement::new(1, modulus).unwrap(),
+            FieldElement::new(2, modulus).unwrap(),
+        ];
+        let polynomial1 = Polynomial::new(coefficients1).unwrap();
+
+        // Define polynomial: 2 + 3x + 4x^2 mod 97.
+        let coefficients2 = vec![
+            FieldElement::new(2, modulus).unwrap(),
+            FieldElement::new(3, modulus).unwrap(),
+            FieldElement::new(4, modulus).unwrap(),
+        ];
+        let polynomial2 = Polynomial::new(coefficients2).unwrap();
+
+        // Expected polynomial = 2 + 7x + 10x^2 + 8x^3 mod 97.
+        let product = polynomial1.mul(&polynomial2).unwrap();
+        assert_eq!(product.coefficients.len(), 4);
+        assert_eq!(
+            product.coefficients[0],
+            FieldElement::new(2, modulus).unwrap()
+        );
+        assert_eq!(
+            product.coefficients[1],
+            FieldElement::new(7, modulus).unwrap()
+        );
+        assert_eq!(
+            product.coefficients[2],
+            FieldElement::new(10, modulus).unwrap()
+        );
+        assert_eq!(
+            product.coefficients[3],
+            FieldElement::new(8, modulus).unwrap()
+        );
     }
 }
