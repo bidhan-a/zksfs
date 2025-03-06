@@ -3,8 +3,8 @@ use crate::{errors::ZKError, field::FieldElement};
 /// Represents a term i.e. a variable with a coefficient at an index.
 #[derive(Clone, Debug)]
 pub struct Term {
-    index: usize,
-    coefficient: FieldElement,
+    pub index: usize,
+    pub coefficient: FieldElement,
 }
 
 /// Represents a linear combination of terms.
@@ -28,7 +28,7 @@ impl LinearCombination {
     /// Each variable's value is taken from the witness by its index.
     pub fn evaluate(&self, witness: &[FieldElement]) -> Result<FieldElement, ZKError> {
         if witness.is_empty() {
-            return Err(ZKError::CircuitError("Witness vector is empty".into()));
+            return Err(ZKError::CircuitError("Witness vector is empty.".into()));
         }
 
         let modulus = witness[0].modulus;
