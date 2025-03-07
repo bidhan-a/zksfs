@@ -97,9 +97,9 @@ impl QAP {
                 });
             }
 
-            let a_points_interpolated = interpolate_points(&a_points)?;
-            let b_points_interpolated = interpolate_points(&b_points)?;
-            let c_points_interpolated = interpolate_points(&c_points)?;
+            let a_points_interpolated = Self::interpolate_points(&a_points)?;
+            let b_points_interpolated = Self::interpolate_points(&b_points)?;
+            let c_points_interpolated = Self::interpolate_points(&c_points)?;
 
             a_polynomials.push(a_points_interpolated);
             b_polynomials.push(b_points_interpolated);
@@ -113,46 +113,97 @@ impl QAP {
             c_polynomials,
         })
     }
-}
 
-// Interpolate points using Lagrange interpolation.
-fn interpolate_points(points: &[Point]) -> Result<Polynomial, ZKError> {
-    if points.is_empty() {
-        return Err(ZKError::PolynomialError("No points to interpolate".into()));
-    }
+    /// Calculates the witness quotient polynomial h(x) such that:
+    /// p(x) = h(x) * t(x),
+    /// where:
+    ///   p(x) = A(x) * B(x) - C(x)
+    ///   A(x) = Σ_j w_j * A_j(x),
+    ///   B(x) = Σ_j w_j * B_j(x),
+    ///   C(x) = Σ_j w_j * C_j(x),
+    ///   t(x) = target polynomial.
+    /// Returns an error if the remainder is not zero.
+    pub fn calculate_witness_quotient(
+        &self,
+        witness: &[FieldElement],
+    ) -> Result<Polynomial, ZKError> {
+        let a_polynomial = self.aggregate_polynomials(witness, |qap, j| &qap.a_polynomials[j])?;
+        let b_polynomial = self.aggregate_polynomials(witness, |qap, j| &qap.b_polynomials[j])?;
+        let c_polynomial = self.aggregate_polynomials(witness, |qap, j| &qap.c_polynomials[j])?;
+        let p_polynomial = a_polynomial.mul(&b_polynomial)?.sub(&c_polynomial)?;
+        let (quotient, remainder) = p_polynomial.div(&self.target_polynomial)?;
 
-    let modulus = points[0].x.modulus;
-    // Start with a zero polynomial.
-    let mut result = Polynomial::new(vec![FieldElement::new(0, modulus)?])?;
-
-    for (i, point_outer) in points.iter().enumerate() {
-        let mut numerator = Polynomial::new(vec![FieldElement::new(1, modulus)?])?;
-        let mut denominator = FieldElement::new(1, modulus)?;
-
-        for (j, point_inner) in points.iter().enumerate() {
-            if i == j {
-                continue;
+        // Ensure remainder is zero.
+        for coeff in remainder.coefficients {
+            if coeff.value != 0 {
+                return Err(ZKError::PolynomialError(
+                    "p(x) is not divisible by t(x)".into(),
+                ));
             }
-
-            let numerator_factor = Polynomial::new(vec![
-                FieldElement::new(
-                    (modulus - (point_inner.x.value % modulus)) % modulus,
-                    modulus,
-                )?,
-                FieldElement::new(1, modulus)?,
-            ])?;
-            numerator = numerator.mul(&numerator_factor)?;
-            denominator = denominator.mul(&point_outer.x.sub(&point_inner.x)?)?;
         }
 
-        let denominator_inverse = denominator.inv()?;
-        let final_polynomial = numerator.mul(&Polynomial::new(vec![point_outer
-            .y
-            .mul(&denominator_inverse)?])?)?;
-        result = result.add(&final_polynomial)?;
+        Ok(quotient)
     }
 
-    Ok(result)
+    // Interpolate points using Lagrange interpolation.
+    fn interpolate_points(points: &[Point]) -> Result<Polynomial, ZKError> {
+        if points.is_empty() {
+            return Err(ZKError::PolynomialError("No points to interpolate".into()));
+        }
+
+        let modulus = points[0].x.modulus;
+        // Start with a zero polynomial.
+        let mut result = Polynomial::new(vec![FieldElement::new(0, modulus)?])?;
+
+        for (i, point_outer) in points.iter().enumerate() {
+            let mut numerator = Polynomial::new(vec![FieldElement::new(1, modulus)?])?;
+            let mut denominator = FieldElement::new(1, modulus)?;
+
+            for (j, point_inner) in points.iter().enumerate() {
+                if i == j {
+                    continue;
+                }
+
+                let numerator_factor = Polynomial::new(vec![
+                    FieldElement::new(
+                        (modulus - (point_inner.x.value % modulus)) % modulus,
+                        modulus,
+                    )?,
+                    FieldElement::new(1, modulus)?,
+                ])?;
+                numerator = numerator.mul(&numerator_factor)?;
+                denominator = denominator.mul(&point_outer.x.sub(&point_inner.x)?)?;
+            }
+
+            let denominator_inverse = denominator.inv()?;
+            let final_polynomial = numerator.mul(&Polynomial::new(vec![point_outer
+                .y
+                .mul(&denominator_inverse)?])?)?;
+            result = result.add(&final_polynomial)?;
+        }
+
+        Ok(result)
+    }
+
+    /// Aggregates the polynomials for a given side (A, B, or C) using the witness.
+    /// The closure `selector` picks the appropriate polynomial for variable j.
+    fn aggregate_polynomials<F>(
+        &self,
+        witness: &[FieldElement],
+        selector: F,
+    ) -> Result<Polynomial, ZKError>
+    where
+        F: Fn(&QAP, usize) -> &Polynomial,
+    {
+        let modulus = witness[0].modulus;
+        let mut sum = Polynomial::new(vec![FieldElement::new(0, modulus)?])?;
+        for j in 0..witness.len() {
+            let poly_j = selector(self, j);
+            let scaled = poly_j.scale(&witness[j])?;
+            sum = sum.add(&scaled)?;
+        }
+        Ok(sum)
+    }
 }
 
 #[cfg(test)]
@@ -343,6 +394,70 @@ mod tests {
         ];
         for j in 0..6 {
             check_interpolation(&qap.c_polynomials[j], &expected_c[j]);
+        }
+
+        // Check witness.
+
+        // For x = 3, the witness is:
+        // v0 = 1, v1 = 3, v2 = 9, v3 = 27, v4 = 27 + 3 = 30, v5 = 30 + 5 = 35.
+        let witness = vec![
+            FieldElement::new(1, modulus).unwrap(),
+            FieldElement::new(3, modulus).unwrap(),
+            FieldElement::new(9, modulus).unwrap(),
+            FieldElement::new(27, modulus).unwrap(),
+            FieldElement::new(30, modulus).unwrap(),
+            FieldElement::new(35, modulus).unwrap(),
+        ];
+
+        // Compute the witness quotient polynomial h(x).
+        let h_poly = qap.calculate_witness_quotient(&witness).unwrap();
+
+        // As a sanity check, we verify that for several x-values, we have:
+        // A(x) * B(x) - C(x) = h(x) * t(x)
+        for x_val in 1..=5 {
+            let x = FieldElement::new(x_val, modulus).unwrap();
+            // Aggregate A(x), B(x), and C(x)
+            let mut a_eval = FieldElement::new(0, modulus).unwrap();
+            let mut b_eval = FieldElement::new(0, modulus).unwrap();
+            let mut c_eval = FieldElement::new(0, modulus).unwrap();
+            for j in 0..witness.len() {
+                a_eval = a_eval
+                    .add(
+                        &qap.a_polynomials[j]
+                            .scale(&witness[j])
+                            .unwrap()
+                            .evaluate(&x)
+                            .unwrap(),
+                    )
+                    .unwrap();
+                b_eval = b_eval
+                    .add(
+                        &qap.b_polynomials[j]
+                            .scale(&witness[j])
+                            .unwrap()
+                            .evaluate(&x)
+                            .unwrap(),
+                    )
+                    .unwrap();
+                c_eval = c_eval
+                    .add(
+                        &qap.c_polynomials[j]
+                            .scale(&witness[j])
+                            .unwrap()
+                            .evaluate(&x)
+                            .unwrap(),
+                    )
+                    .unwrap();
+            }
+            let p_val = a_eval.mul(&b_eval).unwrap().sub(&c_eval).unwrap();
+            let t_val = qap.target_polynomial.evaluate(&x).unwrap();
+            let h_val = h_poly.evaluate(&x).unwrap();
+            let recomposed = h_val.mul(&t_val).unwrap();
+            assert_eq!(
+                p_val.value, recomposed.value,
+                "At x = {}: p(x) should equal h(x) * t(x)",
+                x_val
+            );
         }
     }
 }

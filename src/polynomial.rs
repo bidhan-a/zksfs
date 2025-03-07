@@ -135,6 +135,51 @@ impl Polynomial {
         }
         Polynomial::new(product)
     }
+
+    /// Performs polynomial long division and returns the quotient and the remainder.
+    pub fn div(&self, other: &Polynomial) -> Result<(Polynomial, Polynomial), ZKError> {
+        let modulus = self.coefficients[0].modulus;
+        if modulus != other.coefficients[0].modulus {
+            return Err(ZKError::PolynomialError(
+                "Moduli must be the same for division".to_string(),
+            ));
+        }
+
+        let mut remainder = self.clone();
+        let quotient_size = self.degree().saturating_sub(other.degree()) + 1;
+        let mut quotient_coefficients = vec![FieldElement::new(0, modulus)?; quotient_size];
+
+        while remainder.degree() >= other.degree()
+            && remainder.coefficients.len() > 0
+            && remainder.coefficients[remainder.degree()].value != 0
+        {
+            let deg_diff = remainder.degree() - other.degree();
+            let lead_dividend = remainder.coefficients[remainder.degree()].clone();
+            let lead_divisor = other.coefficients[other.degree()].clone();
+            let factor = lead_dividend.mul(&lead_divisor.inv()?)?;
+            // Create a polynomial factor_poly = factor * x^(deg_diff)
+            let mut factor_poly_coefficients = vec![FieldElement::new(0, modulus)?; deg_diff];
+            factor_poly_coefficients.push(factor.clone());
+            let factor_poly = Polynomial::new(factor_poly_coefficients)?;
+
+            quotient_coefficients[deg_diff] = quotient_coefficients[deg_diff].add(&factor)?;
+            let subtrahend = factor_poly.mul(other)?;
+            remainder = remainder.sub(&subtrahend)?;
+        }
+
+        let quotient = Polynomial::new(quotient_coefficients)?;
+        Ok((quotient, remainder))
+    }
+
+    /// Scales the polynomial by a scalar field element.
+    pub fn scale(&self, scalar: &FieldElement) -> Result<Polynomial, ZKError> {
+        let scaled_coefficients = self
+            .coefficients
+            .iter()
+            .map(|c| c.mul(scalar).unwrap())
+            .collect();
+        Polynomial::new(scaled_coefficients)
+    }
 }
 
 #[cfg(test)]
@@ -253,6 +298,73 @@ mod tests {
         assert_eq!(
             product.coefficients[3],
             FieldElement::new(8, modulus).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_div() {
+        let modulus = 97;
+        // Define polynomial: 6 + 5x + x^2 mod 97.
+        let coefficients1 = vec![
+            FieldElement::new(6, modulus).unwrap(),
+            FieldElement::new(5, modulus).unwrap(),
+            FieldElement::new(1, modulus).unwrap(),
+        ];
+        let polynomial1 = Polynomial::new(coefficients1).unwrap();
+
+        // Define polynomial: 2 + x mod 97.
+        let coefficients2 = vec![
+            FieldElement::new(2, modulus).unwrap(),
+            FieldElement::new(1, modulus).unwrap(),
+        ];
+        let polynomial2 = Polynomial::new(coefficients2).unwrap();
+
+        // Expected polynomial = 3 + x
+        let (quotient, remainder) = polynomial1.div(&polynomial2).unwrap();
+
+        assert_eq!(
+            quotient.coefficients[0],
+            FieldElement::new(3, modulus).unwrap()
+        );
+        assert_eq!(
+            quotient.coefficients[1],
+            FieldElement::new(1, modulus).unwrap()
+        );
+
+        for i in 0..2 {
+            assert_eq!(
+                remainder.coefficients[i],
+                FieldElement::new(0, modulus).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn test_scale() {
+        let modulus = 97;
+        // Define polynomial: 1 + 2x + 3x^2 mod 97.
+        let coefficients = vec![
+            FieldElement::new(1, modulus).unwrap(),
+            FieldElement::new(2, modulus).unwrap(),
+            FieldElement::new(3, modulus).unwrap(),
+        ];
+        let polynomial = Polynomial::new(coefficients).unwrap();
+
+        let scaled = polynomial
+            .scale(&FieldElement::new(2, modulus).unwrap())
+            .unwrap();
+
+        assert_eq!(
+            scaled.coefficients[0],
+            FieldElement::new(2, modulus).unwrap()
+        );
+        assert_eq!(
+            scaled.coefficients[1],
+            FieldElement::new(4, modulus).unwrap()
+        );
+        assert_eq!(
+            scaled.coefficients[2],
+            FieldElement::new(6, modulus).unwrap()
         );
     }
 }
