@@ -5,4 +5,4 @@ mod field;
 mod pairing;
 mod polynomial;
 mod qap;
-mod utils;
+mod snark;
