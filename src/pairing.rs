@@ -44,3 +44,31 @@ impl Pairing {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::curve::EllipticCurve;
+    use crate::field::FieldElement;
+
+    #[test]
+    fn test_pairing() {
+        let modulus = 97;
+        let curve = EllipticCurve {
+            a: FieldElement::new(2, modulus).unwrap(),
+            b: FieldElement::new(3, modulus).unwrap(),
+        };
+        let point_a = EllipticCurvePoint::Point {
+            x: FieldElement::new(3, modulus).unwrap(),
+            y: FieldElement::new(6, modulus).unwrap(),
+        };
+        let point_b = EllipticCurvePoint::Point {
+            x: FieldElement::new(2, modulus).unwrap(),
+            y: FieldElement::new(5, modulus).unwrap(),
+        };
+        let pairing = Pairing::create(&curve, &point_a, &point_b).unwrap();
+        // Dummy pairing multiplies the x-coordinates.
+        // For p and q, x = 3, so expected result is 3 * 2 = 6 mod 97.
+        assert_eq!(pairing.value, FieldElement::new(6, modulus).unwrap());
+    }
+}

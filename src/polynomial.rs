@@ -8,7 +8,7 @@ pub struct Polynomial {
 
 impl Polynomial {
     /// Creates a new polynomial.
-    pub fn new(mut coefficients: Vec<FieldElement>) -> Result<Self, ZKError> {
+    pub fn new(coefficients: Vec<FieldElement>) -> Result<Self, ZKError> {
         if coefficients.is_empty() {
             return Err(ZKError::CircuitError(
                 "Polynomial must have at least one coefficient".to_string(),

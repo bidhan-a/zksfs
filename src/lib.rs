@@ -1,8 +1,8 @@
-mod circuit;
-mod curve;
-mod errors;
-mod field;
-mod pairing;
-mod polynomial;
-mod qap;
-mod snark;
+pub mod circuit;
+pub mod curve;
+pub mod errors;
+pub mod field;
+pub mod pairing;
+pub mod polynomial;
+pub mod qap;
+pub mod snark;
